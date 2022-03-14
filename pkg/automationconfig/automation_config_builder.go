@@ -175,8 +175,8 @@ func (b *Builder) SetPreviousAutomationConfig(previousAC AutomationConfig) *Buil
 	return b
 }
 
-func (b *Builder) SetAuth(auth Auth) *Builder {
-	b.auth = &auth
+func (b *Builder) SetAuth(auth *Auth) *Builder {
+	b.auth = auth
 	return b
 }
 
@@ -270,8 +270,10 @@ func (b *Builder) Build() (AutomationConfig, error) {
 			FeatureCompatibilityVersion: fcv,
 			ProcessType:                 Mongod,
 			Version:                     b.mongodbVersion,
-			AuthSchemaVersion:           5,
 		}
+		//if !b.auth.Disabled {
+		process.AuthSchemaVersion = 5
+		//}
 
 		process.SetPort(b.port)
 		process.SetStoragePath(dataDir)
@@ -300,7 +302,7 @@ func (b *Builder) Build() (AutomationConfig, error) {
 		members[i] = newReplicaSetMember(process.Name, replicaSetIndex, horizon, isArbiter, isVotingMember)
 	}
 
-	if b.auth == nil {
+	if b.auth.Disabled {
 		disabled := disabledAuth()
 		b.auth = &disabled
 	}

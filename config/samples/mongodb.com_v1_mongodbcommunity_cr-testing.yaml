@@ -5,21 +5,35 @@ metadata:
   name: rs-activequeue-poc
 spec:
   members: 3
-  # automationConfig:
-  #   processes:
-  #     - name: example-mongodb-0
-  #       disabled: false
-  #     - name: example-mongodb-1
-  #       disabled: false
-  #     - name: example-mongodb-2
-  #       disabled: false
   type: ReplicaSet
   version: "4.0.28"
   security:
     authentication:
-      disabled: true
-  additionalMongodConfig:
-    storage.wiredTiger.engineConfig.journalCompressor: zlib
+      disabled: false
+      modes: ["SCRAM"]
+    roles: # custom roles are defined here
+      - role: testRole
+        db: admin
+        privileges:
+          - resource:
+              db: "test"
+              collection: "" # an empty string indicates any collection
+            actions:
+              - find
+        roles: []
+  users:
+    - name: my-user
+      db: admin
+      passwordSecretRef: # a reference to the secret that will be used to generate the user's password
+        name: my-user-password
+      roles:
+        - name: clusterAdmin
+          db: admin
+        - name: userAdminAnyDatabase
+          db: admin
+        - name: testRole # apply the custom role to the user
+          db: admin
+      scramCredentialsSecretName: my-scram
   statefulSet:
     spec:
       template:
@@ -46,11 +60,11 @@ spec:
 
 # the user credentials will be generated from this secret
 # once the credentials are generated, this secret is no longer required
-# ---
-# apiVersion: v1
-# kind: Secret
-# metadata:
-#   name: my-user-password
-# type: Opaque
-# stringData:
-#   password: testing123
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: my-user-password
+type: Opaque
+stringData:
+  password: testing123

@@ -442,7 +442,7 @@ func createAutomationConfig(name, mongodbVersion, domain string, opts Options, a
 		SetOptions(opts).
 		SetDomain(domain).
 		SetMembers(members).
-		SetAuth(auth).
+		SetAuth(&auth).
 		Build()
 
 	ac.Version = acVersion

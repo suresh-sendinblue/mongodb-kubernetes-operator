@@ -19,7 +19,7 @@ const (
 )
 
 // configureScramInAutomationConfig updates the provided auth struct and fully configures Scram authentication.
-func configureScramInAutomationConfig(auth *automationconfig.Auth, agentPassword, agentKeyFile string, users []automationconfig.MongoDBUser, opts Options) error {
+func configureScramInAutomationConfig(auth *automationconfig.Auth, agentPassword, agentKeyFile string, users []automationconfig.MongoDBUser, opts *Options) error {
 	if err := validateScramOptions(opts); err != nil {
 		return err
 	}
@@ -30,8 +30,10 @@ func configureScramInAutomationConfig(auth *automationconfig.Auth, agentPassword
 
 // enableAgentAuthentication updates the provided auth struct and configures scram authentication based on the provided
 // values and configuration options.
-func enableAgentAuthentication(auth *automationconfig.Auth, agentPassword, agentKeyFileContents string, users []automationconfig.MongoDBUser, opts Options) {
-	auth.Disabled = false
+func enableAgentAuthentication(auth *automationconfig.Auth, agentPassword, agentKeyFileContents string, users []automationconfig.MongoDBUser, opts *Options) {
+	if auth.Disabled {
+		return
+	}
 	auth.AuthoritativeSet = opts.AuthoritativeSet
 	auth.KeyFile = opts.KeyFile
 
@@ -61,7 +63,10 @@ func enableAgentAuthentication(auth *automationconfig.Auth, agentPassword, agent
 	auth.Users = users
 }
 
-func enableDeploymentMechanisms(auth *automationconfig.Auth, opts Options) {
+func enableDeploymentMechanisms(auth *automationconfig.Auth, opts *Options) {
+	if auth.Disabled {
+		return
+	}
 	for _, authMode := range opts.AutoAuthMechanisms {
 		if !contains.String(auth.DeploymentAuthMechanisms, authMode) {
 			auth.DeploymentAuthMechanisms = append(auth.DeploymentAuthMechanisms, authMode)
@@ -71,8 +76,11 @@ func enableDeploymentMechanisms(auth *automationconfig.Auth, opts Options) {
 
 // validateScramOptions validates that all the required fields have
 // a non empty value.
-func validateScramOptions(opts Options) error {
+func validateScramOptions(opts *Options) error {
 	var errs error
+	if opts == nil {
+		return nil
+	}
 	if len(opts.AutoAuthMechanisms) == 0 {
 		errs = multierror.Append(errs, errors.New("at least one AutoAuthMechanism must be specified"))
 	}

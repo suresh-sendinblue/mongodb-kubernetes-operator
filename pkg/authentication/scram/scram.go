@@ -33,7 +33,7 @@ const (
 // Configurable is an interface which any resource which can configure ScramSha authentication should implement.
 type Configurable interface {
 	// GetScramOptions returns a set of Options which can be used for fine grained configuration.
-	GetScramOptions() Options
+	GetScramOptions() *Options
 
 	// GetScramUsers returns a list of users which will be mapped to users in the AutomationConfig.
 	GetScramUsers() []User
@@ -106,6 +106,9 @@ type Options struct {
 // The agent password and keyfile contents will be configured and stored in a secret.
 // the user credentials will be generated if not present, or existing credentials will be read.
 func Enable(auth *automationconfig.Auth, secretGetUpdateCreateDeleter secret.GetUpdateCreateDeleter, mdb Configurable) error {
+	if auth.Disabled {
+		return nil
+	}
 	generatedPassword, err := generate.RandomFixedLengthStringOfSize(20)
 	if err != nil {
 		return errors.Errorf("could not generate password: %s", err)

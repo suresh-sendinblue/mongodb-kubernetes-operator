@@ -431,6 +431,8 @@ type LocalObjectReference struct {
 }
 
 type Authentication struct {
+	// Disabled is a boolean tells if authention is disabled or not
+	Disabled bool `json:"disabled"`
 	// Modes is an array specifying which authentication methods should be enabled.
 	Modes []AuthMode `json:"modes"`
 
@@ -501,10 +503,16 @@ func (m MongoDBCommunity) GetMongodConfiguration() MongodConfiguration {
 }
 
 func (m MongoDBCommunity) GetAgentPasswordSecretNamespacedName() types.NamespacedName {
+	if m.Spec.Security.Authentication.Disabled {
+		return types.NamespacedName{}
+	}
 	return types.NamespacedName{Name: m.Name + "-agent-password", Namespace: m.Namespace}
 }
 
 func (m MongoDBCommunity) GetAgentKeyfileSecretNamespacedName() types.NamespacedName {
+	if m.Spec.Security.Authentication.Disabled {
+		return types.NamespacedName{}
+	}
 	return types.NamespacedName{Name: m.Name + "-keyfile", Namespace: m.Namespace}
 }
 
@@ -519,7 +527,11 @@ func (m MongoDBCommunity) GetOwnerReferences() []metav1.OwnerReference {
 
 // GetScramOptions returns a set of Options that are used to configure scram
 // authentication.
-func (m MongoDBCommunity) GetScramOptions() scram.Options {
+func (m MongoDBCommunity) GetScramOptions() *scram.Options {
+
+	if m.Spec.Security.Authentication.Disabled {
+		return nil
+	}
 
 	ignoreUnknownUsers := true
 	if m.Spec.Security.Authentication.IgnoreUnknownUsers != nil {
@@ -541,7 +553,7 @@ func (m MongoDBCommunity) GetScramOptions() scram.Options {
 		}
 	}
 
-	return scram.Options{
+	return &scram.Options{
 		AuthoritativeSet:   !ignoreUnknownUsers,
 		KeyFile:            scram.AutomationAgentKeyFilePathInContainer,
 		AutoAuthMechanisms: authMechanisms,
@@ -554,6 +566,9 @@ func (m MongoDBCommunity) GetScramOptions() scram.Options {
 // that can be used to configure scram authentication.
 func (m MongoDBCommunity) GetScramUsers() []scram.User {
 	users := make([]scram.User, len(m.Spec.Users))
+	if m.Spec.Security.Authentication.Disabled {
+		return users
+	}
 	for i, u := range m.Spec.Users {
 		roles := make([]scram.Role, len(u.Roles))
 		for j, r := range u.Roles {
@@ -632,7 +647,15 @@ func (m MongoDBCommunity) MongoSRVURI(clusterDomain string) string {
 // MongoAuthUserURI returns a mongo uri which can be used to connect to this deployment
 // and includes the authentication data for the user
 func (m MongoDBCommunity) MongoAuthUserURI(user scram.User, password string, clusterDomain string) string {
-	return fmt.Sprintf("mongodb://%s:%s@%s/%s?ssl=%t",
+	var connstring = "mongodb://%s:%s@%s/%s?ssl=%t"
+	if m.Spec.Security.Authentication.Disabled {
+		connstring = "mongodb://%s/%s?ssl=%t"
+		return fmt.Sprintf(connstring,
+			strings.Join(m.Hosts(clusterDomain), ","),
+			user.Database,
+			m.Spec.Security.TLS.Enabled)
+	}
+	return fmt.Sprintf(connstring,
 		url.QueryEscape(user.Username),
 		url.QueryEscape(password),
 		strings.Join(m.Hosts(clusterDomain), ","),
@@ -646,7 +669,17 @@ func (m MongoDBCommunity) MongoAuthUserSRVURI(user scram.User, password string, 
 	if clusterDomain == "" {
 		clusterDomain = defaultClusterDomain
 	}
-	return fmt.Sprintf("mongodb+srv://%s:%s@%s.%s.svc.%s/%s?ssl=%t",
+	var connstring = "mongodb+srv://%s:%s@%s.%s.svc.%s/%s?ssl=%t"
+	if m.Spec.Security.Authentication.Disabled {
+		connstring = "mongodb+srv://%s.%s.svc.%s/%s?ssl=%t"
+		return fmt.Sprintf(connstring,
+			m.ServiceName(),
+			m.Namespace,
+			clusterDomain,
+			user.Database,
+			m.Spec.Security.TLS.Enabled)
+	}
+	return fmt.Sprintf(connstring,
 		url.QueryEscape(user.Username),
 		url.QueryEscape(password),
 		m.ServiceName(),
