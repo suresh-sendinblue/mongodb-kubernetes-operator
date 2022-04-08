@@ -41,6 +41,9 @@ func validateSpec(mdb mdbv1.MongoDBCommunity) error {
 
 // validateUsers checks if the users configuration is valid
 func validateUsers(mdb mdbv1.MongoDBCommunity) error {
+	if mdb.Spec.Security.Authentication.Disabled {
+		return nil
+	}
 	connectionStringSecretNameMap := map[string]scram.User{}
 	nameCollisions := []string{}
 
@@ -103,6 +106,10 @@ func validateArbiterSpec(mdb mdbv1.MongoDBCommunity) error {
 
 // validateAuthModeSpec checks that the list of modes does not contain duplicates.
 func validateAuthModeSpec(mdb mdbv1.MongoDBCommunity) error {
+
+	if mdb.Spec.Security.Authentication.Disabled {
+		return nil
+	}
 	allModes := mdb.Spec.Security.Authentication.Modes
 
 	// Check that no auth is defined more than once

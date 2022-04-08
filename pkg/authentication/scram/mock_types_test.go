@@ -47,8 +47,8 @@ func (m mockConfigurable) GetAgentKeyfileSecretNamespacedName() types.Namespaced
 	return types.NamespacedName{Name: m.nsName.Name + "-keyfile", Namespace: m.nsName.Namespace}
 }
 
-func (m mockConfigurable) GetScramOptions() Options {
-	return m.opts
+func (m mockConfigurable) GetScramOptions() *Options {
+	return &m.opts
 }
 
 func (m mockConfigurable) GetScramUsers() []User {

@@ -153,6 +153,9 @@ spec:
                 properties:
                   authentication:
                     properties:
+                      disabled:
+                        type: boolean
+                        default: true
                       ignoreUnknownUsers:
                         default: true
                         nullable: true
@@ -167,9 +170,12 @@ spec:
                           - SCRAM-SHA-1
                           type: string
                         type: array
-                    required:
-                    - modes
                     type: object
+                    required:
+                    - disabled
+                    # x-kubernetes-validations:
+                    #   - rule: "self.disabled && size(self.modes) > 0"
+                    #     message: "Don't require modes if authentication is disabled" 
                   roles:
                     description: User-specified custom MongoDB roles that should be
                       configured in the deployment.
@@ -310,6 +316,11 @@ spec:
                     - enabled
                     type: object
                 type: object
+                required: 
+                - authentication
+                # x-kubernetes-validations:
+                #   - rule: "self.authentication.disabled && size(self.roles) > 0"
+                #     message: "Don't require roles if authentication is disabled"
               statefulSet:
                 description: StatefulSetConfiguration holds the optional custom StatefulSet
                   that should be merged into the operator created one.
@@ -389,8 +400,10 @@ spec:
             required:
             - security
             - type
-            - users
             type: object
+            # x-kubernetes-validations:
+            #   - rule: "self.security.authentication.disabled && size(self.users) > 0"
+            #     message: "Don't require the users if authentication is disabled"
           status:
             description: MongoDBCommunityStatus defines the observed state of MongoDB
             properties:

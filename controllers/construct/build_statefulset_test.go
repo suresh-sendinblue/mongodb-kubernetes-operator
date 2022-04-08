@@ -61,7 +61,7 @@ func TestMultipleCalls_DoNotCauseSideEffects(t *testing.T) {
 }
 
 func TestMongod_Container(t *testing.T) {
-	c := container.New(mongodbContainer("4.2", []corev1.VolumeMount{}, mdbv1.NewMongodConfiguration()))
+	c := container.New(mongodbContainer(true, "4.2", []corev1.VolumeMount{}, mdbv1.NewMongodConfiguration()))
 
 	t.Run("Has correct Env vars", func(t *testing.T) {
 		assert.Len(t, c.Env, 1)

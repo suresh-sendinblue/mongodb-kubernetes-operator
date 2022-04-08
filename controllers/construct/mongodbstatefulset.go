@@ -99,7 +99,7 @@ func BuildMongoDBReplicaSetStatefulSetModificationFunction(mdb MongoDBStatefulSe
 	labels := map[string]string{
 		"app": mdb.ServiceName(),
 	}
-
+	isAuthDisabled := true
 	// the health status volume is required in both agent and mongod pods.
 	// the mongod requires it to determine if an upgrade is happening and needs to kill the pod
 	// to prevent agent deadlock
@@ -115,12 +115,21 @@ func BuildMongoDBReplicaSetStatefulSetModificationFunction(mdb MongoDBStatefulSe
 	scriptsVolume := statefulset.CreateVolumeFromEmptyDir("agent-scripts")
 	scriptsVolumeMount := statefulset.CreateVolumeMount(scriptsVolume.Name, "/opt/scripts", statefulset.WithReadOnly(false))
 
-	keyFileNsName := mdb.GetAgentKeyfileSecretNamespacedName()
-	keyFileVolume := statefulset.CreateVolumeFromEmptyDir(keyFileNsName.Name)
-	keyFileVolumeVolumeMount := statefulset.CreateVolumeMount(keyFileVolume.Name, "/var/lib/mongodb-mms-automation/authentication", statefulset.WithReadOnly(false))
-	keyFileVolumeVolumeMountMongod := statefulset.CreateVolumeMount(keyFileVolume.Name, "/var/lib/mongodb-mms-automation/authentication", statefulset.WithReadOnly(false))
+	mongodbAgentVolumeMounts := []corev1.VolumeMount{agentHealthStatusVolumeMount, scriptsVolumeMount}
 
-	mongodbAgentVolumeMounts := []corev1.VolumeMount{agentHealthStatusVolumeMount, scriptsVolumeMount, keyFileVolumeVolumeMount}
+	mongodVolumeMounts := []corev1.VolumeMount{mongodHealthStatusVolumeMount, hooksVolumeMount}
+
+	var keyFileVolume corev1.Volume
+	var keyFileVolumeVolumeMount, keyFileVolumeVolumeMountMongod corev1.VolumeMount
+	keyFileNsName := mdb.GetAgentKeyfileSecretNamespacedName()
+	if keyFileNsName.Name != "" {
+		keyFileVolume = statefulset.CreateVolumeFromEmptyDir(keyFileNsName.Name)
+		isAuthDisabled = false
+		keyFileVolumeVolumeMount = statefulset.CreateVolumeMount(keyFileVolume.Name, "/var/lib/mongodb-mms-automation/authentication", statefulset.WithReadOnly(false))
+		mongodbAgentVolumeMounts = append(mongodbAgentVolumeMounts, keyFileVolumeVolumeMount)
+		keyFileVolumeVolumeMountMongod = statefulset.CreateVolumeMount(keyFileVolume.Name, "/var/lib/mongodb-mms-automation/authentication", statefulset.WithReadOnly(false))
+		mongodVolumeMounts = append(mongodVolumeMounts, keyFileVolumeVolumeMountMongod)
+	}
 
 	automationConfigVolumeFunc := podtemplatespec.NOOP()
 	if mdb.NeedsAutomationConfigVolume() {
@@ -129,7 +138,7 @@ func BuildMongoDBReplicaSetStatefulSetModificationFunction(mdb MongoDBStatefulSe
 		automationConfigVolumeMount := statefulset.CreateVolumeMount(automationConfigVolume.Name, "/var/lib/automation/config", statefulset.WithReadOnly(true))
 		mongodbAgentVolumeMounts = append(mongodbAgentVolumeMounts, automationConfigVolumeMount)
 	}
-	mongodVolumeMounts := []corev1.VolumeMount{mongodHealthStatusVolumeMount, hooksVolumeMount, keyFileVolumeVolumeMountMongod}
+
 	dataVolumeClaim := statefulset.NOOP()
 	logVolumeClaim := statefulset.NOOP()
 	singleModeVolumeClaim := func(s *appsv1.StatefulSet) {}
@@ -156,6 +165,35 @@ func BuildMongoDBReplicaSetStatefulSetModificationFunction(mdb MongoDBStatefulSe
 		podSecurityContext = podtemplatespec.WithSecurityContext(podtemplatespec.DefaultPodSecurityContext())
 	}
 
+	if isAuthDisabled {
+		return statefulset.Apply(
+			statefulset.WithName(mdb.GetName()),
+			statefulset.WithNamespace(mdb.GetNamespace()),
+			statefulset.WithServiceName(mdb.ServiceName()),
+			statefulset.WithLabels(labels),
+			statefulset.WithMatchLabels(labels),
+			statefulset.WithReplicas(scale.ReplicasThisReconciliation(scaler)),
+			statefulset.WithUpdateStrategyType(mdb.GetUpdateStrategyType()),
+			dataVolumeClaim,
+			logVolumeClaim,
+			singleModeVolumeClaim,
+			statefulset.WithPodSpecTemplate(
+				podtemplatespec.Apply(
+					podSecurityContext,
+					podtemplatespec.WithPodLabels(labels),
+					podtemplatespec.WithVolume(healthStatusVolume),
+					podtemplatespec.WithVolume(hooksVolume),
+					automationConfigVolumeFunc,
+					podtemplatespec.WithVolume(scriptsVolume),
+					podtemplatespec.WithServiceAccount(mongodbDatabaseServiceAccountName),
+					podtemplatespec.WithContainer(AgentName, mongodbAgentContainer(mdb.AutomationConfigSecretName(), mongodbAgentVolumeMounts)),
+					podtemplatespec.WithContainer(MongodbName, mongodbContainer(isAuthDisabled, mdb.GetMongoDBVersion(), mongodVolumeMounts, mdb.GetMongodConfiguration())),
+					podtemplatespec.WithInitContainer(versionUpgradeHookName, versionUpgradeHookInit([]corev1.VolumeMount{hooksVolumeMount})),
+					podtemplatespec.WithInitContainer(ReadinessProbeContainerName, readinessProbeInit([]corev1.VolumeMount{scriptsVolumeMount})),
+				),
+			),
+		)
+	}
 	return statefulset.Apply(
 		statefulset.WithName(mdb.GetName()),
 		statefulset.WithNamespace(mdb.GetNamespace()),
@@ -178,11 +216,12 @@ func BuildMongoDBReplicaSetStatefulSetModificationFunction(mdb MongoDBStatefulSe
 				podtemplatespec.WithVolume(keyFileVolume),
 				podtemplatespec.WithServiceAccount(mongodbDatabaseServiceAccountName),
 				podtemplatespec.WithContainer(AgentName, mongodbAgentContainer(mdb.AutomationConfigSecretName(), mongodbAgentVolumeMounts)),
-				podtemplatespec.WithContainer(MongodbName, mongodbContainer(mdb.GetMongoDBVersion(), mongodVolumeMounts, mdb.GetMongodConfiguration())),
+				podtemplatespec.WithContainer(MongodbName, mongodbContainer(isAuthDisabled, mdb.GetMongoDBVersion(), mongodVolumeMounts, mdb.GetMongodConfiguration())),
 				podtemplatespec.WithInitContainer(versionUpgradeHookName, versionUpgradeHookInit([]corev1.VolumeMount{hooksVolumeMount})),
 				podtemplatespec.WithInitContainer(ReadinessProbeContainerName, readinessProbeInit([]corev1.VolumeMount{scriptsVolumeMount})),
 			),
-		))
+		),
+	)
 }
 
 func BaseAgentCommand() string {
@@ -289,23 +328,42 @@ func getMongoDBImage(version string) string {
 	return fmt.Sprintf("%s/%s:%s", repoUrl, mongoImageName, version)
 }
 
-func mongodbContainer(version string, volumeMounts []corev1.VolumeMount, additionalMongoDBConfig mdbv1.MongodConfiguration) container.Modification {
+func mongodbContainer(isAuthDisabled bool, version string, volumeMounts []corev1.VolumeMount, additionalMongoDBConfig mdbv1.MongodConfiguration) container.Modification {
 	filePath := additionalMongoDBConfig.GetDBDataDir() + "/" + automationMongodConfFileName
-	mongoDbCommand := fmt.Sprintf(`
-#run post-start hook to handle version changes
-/hooks/version-upgrade
-
-# wait for config and keyfile to be created by the agent
- while ! [ -f %s -a -f %s ]; do sleep 3 ; done ; sleep 2 ;
-
-# with mongod configured to append logs, we need to provide them to stdout as
-# mongod does not write to stdout and a log file
-tail -F /var/log/mongodb-mms-automation/mongodb.log > /dev/stdout &
-
-# start mongod with this configuration
-exec mongod -f %s;
-
-`, filePath, keyfileFilePath, filePath)
+	var mongoDbCommand string
+	if isAuthDisabled {
+		mongoDbCommand = fmt.Sprintf(`
+		#run post-start hook to handle version changes
+		/hooks/version-upgrade
+		
+		# wait for config to be created by the agent
+		 while ! [ -f %s ]; do sleep 3 ; done ; sleep 2 ;
+		
+		# with mongod configured to append logs, we need to provide them to stdout as
+		# mongod does not write to stdout and a log file
+		tail -F /var/log/mongodb-mms-automation/mongodb.log > /dev/stdout &
+		
+		# start mongod with this configuration
+		exec mongod -f %s;
+		
+		`, filePath, filePath)
+	} else {
+		mongoDbCommand = fmt.Sprintf(`
+		#run post-start hook to handle version changes
+		/hooks/version-upgrade
+		
+		# wait for config and keyfile to be created by the agent
+		 while ! [ -f %s -a -f %s ]; do sleep 3 ; done ; sleep 2 ;
+		
+		# with mongod configured to append logs, we need to provide them to stdout as
+		# mongod does not write to stdout and a log file
+		tail -F /var/log/mongodb-mms-automation/mongodb.log > /dev/stdout &
+		
+		# start mongod with this configuration
+		exec mongod -f %s;
+		
+		`, filePath, keyfileFilePath, filePath)
+	}
 
 	containerCommand := []string{
 		"/bin/sh",
